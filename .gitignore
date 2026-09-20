@@ -1,0 +1,9 @@
+# Root gitignore
+.DS_Store
+.env
+.venv_mac/
+backend/.venv_mac/
+node_modules/
+dist/
+build/
+.cache/

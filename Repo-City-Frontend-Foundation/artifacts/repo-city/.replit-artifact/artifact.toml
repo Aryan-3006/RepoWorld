@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Repo City"
+description = "A professional developer tool that turns a GitHub repository into a navigable architectural world, starting with a focused landing, analysis flow, and interactive world shell."
+version = "1.0.0"
+id = "artifacts/repo-city"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19969
+
+[services.development]
+run = "pnpm --filter @workspace/repo-city run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/repo-city", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/repo-city/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19969"
+BASE_PATH = "/"

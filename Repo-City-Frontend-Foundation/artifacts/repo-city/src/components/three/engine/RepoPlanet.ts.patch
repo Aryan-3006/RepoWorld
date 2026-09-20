@@ -1,0 +1,149 @@
+--- src/components/three/engine/RepoPlanet.ts
++++ src/components/three/engine/RepoPlanet.ts
+@@ -115,7 +115,10 @@
+       
+       const cityGroup = this.cityGenerator.generateForCountry(country, center, rng);
+       this.scene.add(cityGroup.cityLabels);
+-      this.scene.add(cityGroup.buildingMesh);
++      this.scene.add(cityGroup.cityMarkers);
++      for (const bMesh of cityGroup.buildingMeshes) {
++        this.scene.add(bMesh.mesh);
++      }
+       
+       const centerPos = getPlanetPosition(center.lat, center.lng, this.planet.radius);
+       
+@@ -155,10 +158,26 @@
+   private handleZoomLevel(level: ZoomLevel, radius: number) {
+-    if (level === 'planet' || level === 'continent') {
+-      this.countryGenerator.countryGroup.visible = true;
+-    } else {
+-      this.countryGenerator.countryGroup.visible = false;
+-    }
++    this.countryGenerator.countryGroup.visible = (level === 'planet' || level === 'continent');
++
++    if (!this.selectedCountryId) return;
++
++    const data = this.countryDataMap.get(this.selectedCountryId);
++    if (data) {
++      if (level === 'planet' || level === 'continent') {
++        // Show cities as simple markers
++        data.group.cityMarkers.visible = true;
++        data.group.buildingMeshes.forEach(b => b.mesh.visible = false);
++      } else if (level === 'city') {
++        // Still mostly overview, maybe show buildings but hide markers
++        data.group.cityMarkers.visible = false;
++        data.group.buildingMeshes.forEach(b => b.mesh.visible = true);
++      } else {
++        // district, building
++        data.group.cityMarkers.visible = false;
++        data.group.buildingMeshes.forEach(b => b.mesh.visible = true);
++      }
++    }
+   }
+ 
+   private onClick = (event: MouseEvent) => {
+@@ -172,13 +191,24 @@
+     if (this.selectedCountryId) {
+       const data = this.countryDataMap.get(this.selectedCountryId);
+       if (data) {
+-        const intersects = this.raycaster.intersectObject(data.group.buildingMesh);
+-        if (intersects.length > 0) {
+-          const instanceId = intersects[0].instanceId;
+-          if (instanceId !== undefined) {
+-            const fileId = data.group.buildingsData.get(instanceId);
+-            if (fileId && this.onSelectFile) {
+-              this.onSelectFile(fileId);
+-              return;
++        // Check buildings if visible
++        if (data.group.buildingMeshes[0].mesh.visible) {
++          for (const bMesh of data.group.buildingMeshes) {
++            const intersects = this.raycaster.intersectObject(bMesh.mesh);
++            if (intersects.length > 0) {
++              const instanceId = intersects[0].instanceId;
++              if (instanceId !== undefined) {
++                const fileId = bMesh.data.get(instanceId);
++                if (fileId && this.onSelectFile) {
++                  // Also focus the building when clicked
++                  this.focusFile(fileId);
++                  this.onSelectFile(fileId);
++                  return;
++                }
++              }
+             }
+           }
++        }
++        
++        // Check city markers if visible
++        if (data.group.cityMarkers.visible) {
++          const intersects = this.raycaster.intersectObject(data.group.cityMarkers);
++          if (intersects.length > 0) {
++            const instanceId = intersects[0].instanceId;
++            // We don't have a direct map for city markers, but CityGenerator has cityIdToPosition
++            // For now, if they click a city, we can just zoom into it.
++            // The click behavior wants: click city -> focus city.
++            // We can retrieve city from intersection point.
++            let closestCityId: string | null = null;
++            let minDist = Infinity;
++            for (const [cId, pos] of this.cityGenerator.cityIdToPosition.entries()) {
++              const d = pos.distanceTo(intersects[0].point);
++              if (d < minDist) {
++                minDist = d;
++                closestCityId = cId;
++              }
++            }
++            if (closestCityId) {
++              this.focusCity(closestCityId);
++              return;
++            }
++          }
+         }
+       }
+@@ -218,14 +248,17 @@
+     for (const [countryId, data] of this.countryDataMap.entries()) {
+       const isSelected = countryId === id;
+       data.group.cityLabels.visible = isSelected;
+-      data.group.buildingMesh.visible = isSelected;
++      
++      // Update visibility according to current zoom if selected, else hide
++      data.group.cityMarkers.visible = isSelected ? (this.cameraController.getZoomLevel() === 'planet' || this.cameraController.getZoomLevel() === 'continent') : false;
++      const showBuildings = isSelected ? (this.cameraController.getZoomLevel() !== 'planet' && this.cameraController.getZoomLevel() !== 'continent') : false;
++      data.group.buildingMeshes.forEach(b => b.mesh.visible = showBuildings);
+       
+       const mat = data.patch.material as THREE.MeshStandardMaterial;
+       if (isSelected) {
+         mat.opacity = 0.8;
+         mat.emissive.setHex(0x111111);
+       } else {
+         mat.opacity = 0.4;
+         mat.emissive.setHex(0x000000);
+@@ -253,19 +286,29 @@
+ 
+     if (pos) {
+       // Set the camera target to the building's position and zoom in very close
+-      this.cameraController.flyTo(pos, 10);
++      this.cameraController.flyTo(pos, 20); // building level
+     }
+   }
+ 
+   focusDistrict(districtId: string): void {
+-    // Phase 2 feature
++    const pos = this.cityGenerator.districtIdToPosition.get(districtId);
++    if (pos) {
++      this.cameraController.flyTo(pos, 40); // district level
++    }
+   }
+ 
+   focusCity(cityId: string): void {
+-    // Phase 2 feature
++    const pos = this.cityGenerator.cityIdToPosition.get(cityId);
++    if (pos) {
++      this.cameraController.flyTo(pos, 80); // city level
++    }
+   }
+ 
+   focusContinent(continentId: string): void {
+-    // Phase 2 feature
++    this.setSelectedCountry(continentId);
+   }
+ 
+   resetCamera(): void {

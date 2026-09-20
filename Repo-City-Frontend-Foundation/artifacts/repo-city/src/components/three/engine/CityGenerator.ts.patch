@@ -1,0 +1,137 @@
+--- src/components/three/engine/CityGenerator.ts
++++ src/components/three/engine/CityGenerator.ts
+@@ -26,8 +26,16 @@
+ 
+ export interface CountryGeometryGroup {
+   cityLabels: THREE.Group;
+-  buildingMesh: THREE.InstancedMesh;
+-  buildingsData: Map<number, string>;
++  cityMarkers: THREE.InstancedMesh;
++  buildingMeshes: { mesh: THREE.InstancedMesh, data: Map<number, string> }[];
++}
++
++export interface InstancedBuilding {
++  position: THREE.Vector3;
++  scale: THREE.Vector3;
++  color: THREE.Color;
++  normal: THREE.Vector3; // Up direction
++  id: string;
+ }
+ 
+ export class CityGenerator {
+@@ -37,6 +45,8 @@
+   
+   public buildingIdToPosition = new Map<string, THREE.Vector3>();
+   public buildingIdToCountryId = new Map<string, string>();
++  public cityIdToPosition = new Map<string, THREE.Vector3>();
++  public districtIdToPosition = new Map<string, THREE.Vector3>();
+   private dummy = new THREE.Object3D();
+ 
+   constructor(scene: THREE.Scene, planetRadius: number) {
+@@ -46,9 +56,12 @@
+ 
+   public generateForCountry(country: CountryData, center: { lat: number, lng: number, radius: number, shape: THREE.Shape }, rng: SeededRandom): CountryGeometryGroup {
+-    const allBuildings: InstancedBuilding[] = [];
++    const buildingsRegular: InstancedBuilding[] = [];
++    const buildingsTower: InstancedBuilding[] = [];
++    const buildingsLowRise: InstancedBuilding[] = [];
++    const cityMarkersData: InstancedBuilding[] = [];
++    
+     const cityLabels = new THREE.Group();
+-    const buildingsData = new Map<number, string>();
+     const boundaryPoints = center.shape.extractPoints(12).shape;
+ 
+       const numCities = country.cities.length;
+@@ -74,6 +87,17 @@
+         
+         this.addCityLabel(city, cx, cy, center.lat, center.lng, cityLabels);
+ 
++        const cityPos = this.projectLocalToSphere(cx, cy, center.lat, center.lng);
++        this.cityIdToPosition.set(city.id, cityPos);
++        
++        cityMarkersData.push({
++          position: cityPos,
++          scale: new THREE.Vector3(2, 0.5, 2),
++          color: new THREE.Color(0xaaaaaa),
++          normal: cityPos.clone().normalize(),
++          id: city.id
++        });
++
+         // Distribute districts within city
+         const numDistricts = city.districts.length;
+         for (let j = 0; j < numDistricts; j++) {
+@@ -88,6 +112,9 @@
+             attempts++;
+           } while (attempts < 10 && !pointInPolygon(new THREE.Vector2(dx, dy), boundaryPoints));
+ 
++          const distPos = this.projectLocalToSphere(dx, dy, center.lat, center.lng);
++          this.districtIdToPosition.set(district.id, distPos);
++
+           // Place buildings in a grid/cluster in the district
+           const numBuildings = district.buildings.length;
+           const gridSize = Math.ceil(Math.sqrt(numBuildings));
+@@ -113,7 +140,8 @@
+             const footprint = this.calculateBuildingFootprint(building.size);
+             const color = this.getBuildingColor(building.language, building.isTest);
+ 
+-            allBuildings.push({
++            // Decide archetype based on lines
++            let targetArray = buildingsRegular;
++            if (building.lines > 500) {
++              targetArray = buildingsTower;
++            } else if (building.lines < 50) {
++              targetArray = buildingsLowRise;
++            }
++
++            targetArray.push({
+               position,
+               scale: new THREE.Vector3(footprint, height, footprint),
+               color: new THREE.Color(color),
+               normal: position.clone().normalize(),
+               id: building.id
+             });
+             this.buildingIdToPosition.set(building.id, position);
+             this.buildingIdToCountryId.set(building.id, country.repositoryId);
+           }
+         }
+       }
+ 
+-    const buildingMesh = this.renderInstancedBuildings(allBuildings, buildingsData);
+-    return { cityLabels, buildingMesh, buildingsData };
++    const meshRegular = this.renderInstancedBuildings(buildingsRegular, new THREE.BoxGeometry(1, 1, 1));
++    const meshTower = this.renderInstancedBuildings(buildingsTower, new THREE.BoxGeometry(0.8, 1, 0.8));
++    const meshLowRise = this.renderInstancedBuildings(buildingsLowRise, new THREE.BoxGeometry(1.5, 1, 1.5));
++    
++    // Simple flat marker for cities
++    const geomMarker = new THREE.CylinderGeometry(1, 1, 1, 6);
++    geomMarker.rotateX(Math.PI / 2);
++    const cityMarkers = this.renderInstancedBuildings(cityMarkersData, geomMarker).mesh;
++
++    return { 
++      cityLabels, 
++      cityMarkers,
++      buildingMeshes: [meshRegular, meshTower, meshLowRise] 
++    };
+   }
+ 
+   private projectLocalToSphere(x: number, y: number, centerLat: number, centerLng: number) {
+@@ -150,8 +179,8 @@
+     group.add(label);
+   }
+ 
+-  private renderInstancedBuildings(buildings: InstancedBuilding[], buildingsData: Map<number, string>) {
+-    const geometry = new THREE.BoxGeometry(1, 1, 1);
++  private renderInstancedBuildings(buildings: InstancedBuilding[], geometry: THREE.BufferGeometry) {
++    const buildingsData = new Map<number, string>();
+     geometry.translate(0, 0.5, 0); // Origin at bottom so it scales upwards
+     
+     const material = new THREE.MeshStandardMaterial({
+@@ -185,7 +214,7 @@
+       buildingMesh.instanceColor.needsUpdate = true;
+     }
+     
+-    return buildingMesh;
++    return { mesh: buildingMesh, data: buildingsData };
+   }
+ 
+   private calculateBuildingHeight(lines: number): number {

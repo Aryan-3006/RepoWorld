@@ -1,0 +1,1 @@
+- [Absolute viewport sizing](viewport-sizing.md) — full-screen absolute render boundaries need an explicit viewport-sized minimum height or their child layers can collapse silently.
