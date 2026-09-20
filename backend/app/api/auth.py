@@ -109,7 +109,8 @@ async def github_callback(code: str = None, state: str = None, error: str = None
             key="session_id",
             value=session_id,
             httponly=True,
-            samesite="lax",
+            samesite="none",
+            secure=True,
             max_age=86400 * 7 # 7 days
         )
         return response
